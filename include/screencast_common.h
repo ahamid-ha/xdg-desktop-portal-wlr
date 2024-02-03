@@ -155,6 +155,7 @@ struct xdpw_screencast_context {
 struct xdpw_screencast_target {
 	struct xdpw_wlr_output *output;
 	bool with_cursor;
+	struct xdpw_frame_crop crop;
 };
 
 struct xdpw_screencast_restore_data {

@@ -82,6 +82,12 @@ void xdpw_screencast_instance_init(struct xdpw_screencast_context *ctx,
 		cast->current_frame.crop.y = ctx->state->config->screencast_conf.region.y;
 		cast->current_frame.crop.width = ctx->state->config->screencast_conf.region.width;
 		cast->current_frame.crop.height = ctx->state->config->screencast_conf.region.height;
+	} else {
+		cast->cropmode = XDPW_CROP_WLROOTS;
+		cast->current_frame.crop.x = target->crop.x;
+		cast->current_frame.crop.y = target->crop.y;
+		cast->current_frame.crop.width = target->crop.width;
+		cast->current_frame.crop.height = target->crop.height;
 	}
 	logprint(INFO, "xdpw: screencast instance %p has %d references", cast, cast->refcount);
 	wl_list_insert(&ctx->screencast_instances, &cast->link);

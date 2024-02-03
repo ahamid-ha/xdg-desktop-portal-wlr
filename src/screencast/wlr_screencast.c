@@ -421,12 +421,14 @@ static bool wait_chooser(pid_t pid) {
 }
 
 static bool wlr_output_chooser(struct xdpw_output_chooser *chooser,
-		struct wl_list *output_list, struct xdpw_wlr_output **output) {
+		struct wl_list *output_list, struct xdpw_screencast_target *target) {
 	logprint(DEBUG, "wlroots: output chooser called");
 	struct xdpw_wlr_output *out;
 	size_t name_size = 0;
 	char *name = NULL;
-	*output = NULL;
+	size_t region_size = 0;
+	char *region = NULL;
+	target->output = NULL;
 
 	int chooser_in[2]; //p -> c
 	int chooser_out[2]; //c -> p
@@ -479,6 +481,7 @@ static bool wlr_output_chooser(struct xdpw_output_chooser *chooser,
 	}
 
 	ssize_t nread = getline(&name, &name_size, f);
+	ssize_t region_nread = getline(&region, &region_size, f);
 	fclose(f);
 	if (nread < 0) {
 		perror("getline failed");
@@ -494,11 +497,22 @@ static bool wlr_output_chooser(struct xdpw_output_chooser *chooser,
 	logprint(TRACE, "wlroots: output chooser %s selects output %s", chooser->cmd, name);
 	wl_list_for_each(out, output_list, link) {
 		if (strcmp(out->name, name) == 0) {
-			*output = out;
+			target->output = out;
+			if (region_nread > 0) {
+				sscanf(region, "%u,%u:%ux%u", &target->crop.x, &target->crop.y, &target->crop.width, &target->crop.height);
+			} else {
+				target->crop.x = 0;
+				target->crop.y = 0;
+				target->crop.width = out->width;
+				target->crop.height = out->height;
+			}
+			logprint(TRACE, "wlroots: output chooser selecting region: %u,%u:%ux%u", target->crop.x, target->crop.y, target->crop.width, target->crop.height);
 			break;
 		}
 	}
+
 	free(name);
+	free(region);
 
 end:
 	return true;
@@ -510,51 +524,62 @@ error_chooser_out:
 	close(chooser_in[0]);
 	close(chooser_in[1]);
 error_chooser_in:
-	*output = NULL;
 	return false;
 }
 
-static struct xdpw_wlr_output *wlr_output_chooser_default(struct wl_list *output_list) {
+static void wlr_output_chooser_default(struct wl_list *output_list, struct xdpw_screencast_target *target) {
 	logprint(DEBUG, "wlroots: output chooser called");
 	struct xdpw_output_chooser default_chooser[] = {
-		{XDPW_CHOOSER_SIMPLE, "slurp -f %o -or"},
+		{XDPW_CHOOSER_SIMPLE, "slurp -f '%o\n%X,%Y:%wx%h'"},
 		{XDPW_CHOOSER_DMENU, "wofi -d -n --prompt='Select the monitor to share:'"},
 		{XDPW_CHOOSER_DMENU, "bemenu --prompt='Select the monitor to share:'"},
 	};
 
 	size_t N = sizeof(default_chooser)/sizeof(default_chooser[0]);
-	struct xdpw_wlr_output *output = NULL;
 	bool ret;
 	for (size_t i = 0; i<N; i++) {
-		ret = wlr_output_chooser(&default_chooser[i], output_list, &output);
+		ret = wlr_output_chooser(&default_chooser[i], output_list, target);
 		if (!ret) {
 			logprint(DEBUG, "wlroots: output chooser %s not found. Trying next one.",
 					default_chooser[i].cmd);
 			continue;
 		}
-		if (output != NULL) {
-			logprint(DEBUG, "wlroots: output chooser selects %s", output->name);
+		if (target->output != NULL) {
+			logprint(DEBUG, "wlroots: output chooser selects %s", target->output->name);
 		} else {
 			logprint(DEBUG, "wlroots: output chooser canceled");
 		}
-		return output;
+		return;
 	}
-	return xdpw_wlr_output_first(output_list);
+	struct xdpw_wlr_output *output = NULL;
+	output = xdpw_wlr_output_first(output_list);
+	target->output = output;
+	target->crop.x = 0;
+	target->crop.y = 0;
+	target->crop.width = output->width;
+	target->crop.height = output->height;
 }
 
-static struct xdpw_wlr_output *xdpw_wlr_output_chooser(struct xdpw_screencast_context *ctx) {
+static void xdpw_wlr_output_chooser(struct xdpw_screencast_context *ctx, struct xdpw_screencast_target *target) {
 	switch (ctx->state->config->screencast_conf.chooser_type) {
 	case XDPW_CHOOSER_DEFAULT:
-		return wlr_output_chooser_default(&ctx->output_list);
+		wlr_output_chooser_default(&ctx->output_list, target);
+		break;
 	case XDPW_CHOOSER_NONE:
+		struct xdpw_wlr_output *output = NULL;
 		if (ctx->state->config->screencast_conf.output_name) {
-			return xdpw_wlr_output_find_by_name(&ctx->output_list, ctx->state->config->screencast_conf.output_name);
+			output = xdpw_wlr_output_find_by_name(&ctx->output_list, ctx->state->config->screencast_conf.output_name);
 		} else {
-			return xdpw_wlr_output_first(&ctx->output_list);
+			output = xdpw_wlr_output_first(&ctx->output_list);
 		}
+		target->output = output;
+		target->crop.x = 0;
+		target->crop.y = 0;
+		target->crop.width = output->width;
+		target->crop.height = output->height;
+		break;
 	case XDPW_CHOOSER_DMENU:
 	case XDPW_CHOOSER_SIMPLE:;
-		struct xdpw_wlr_output *output = NULL;
 		if (!ctx->state->config->screencast_conf.chooser_cmd) {
 			logprint(ERROR, "wlroots: no output chooser given");
 			goto end;
@@ -564,24 +589,22 @@ static struct xdpw_wlr_output *xdpw_wlr_output_chooser(struct xdpw_screencast_co
 			ctx->state->config->screencast_conf.chooser_cmd
 		};
 		logprint(DEBUG, "wlroots: output chooser %s (%d)", chooser.cmd, chooser.type);
-		bool ret = wlr_output_chooser(&chooser, &ctx->output_list, &output);
+		bool ret = wlr_output_chooser(&chooser, &ctx->output_list, target);
 		if (!ret) {
 			logprint(ERROR, "wlroots: output chooser %s failed", chooser.cmd);
 			goto end;
 		}
-		if (output) {
-			logprint(DEBUG, "wlroots: output chooser selects %s", output->name);
+		if (target->output) {
+			logprint(DEBUG, "wlroots: output chooser selects %s", target->output->name);
 		} else {
 			logprint(DEBUG, "wlroots: output chooser canceled");
 		}
-		return output;
 	}
 end:
-	return NULL;
 }
 
 bool xdpw_wlr_target_chooser(struct xdpw_screencast_context *ctx, struct xdpw_screencast_target *target) {
-	target->output = xdpw_wlr_output_chooser(ctx);
+	xdpw_wlr_output_chooser(ctx, target);
 	return target->output != NULL;
 }
 
@@ -594,6 +617,10 @@ bool xdpw_wlr_target_from_data(struct xdpw_screencast_context *ctx, struct xdpw_
 		return false;
 	}
 	target->output = out;
+	target->crop.x = 0;
+	target->crop.y = 0;
+	target->crop.width = out->width;
+	target->crop.height = out->height;
 	return true;
 }
 
