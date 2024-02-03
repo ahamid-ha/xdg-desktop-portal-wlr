@@ -611,16 +611,29 @@ bool xdpw_wlr_target_chooser(struct xdpw_screencast_context *ctx, struct xdpw_sc
 bool xdpw_wlr_target_from_data(struct xdpw_screencast_context *ctx, struct xdpw_screencast_target *target,
 		struct xdpw_screencast_restore_data *data) {
 	struct xdpw_wlr_output *out = NULL;
-	out = xdpw_wlr_output_find_by_name(&ctx->output_list, data->output_name);
+
+	target->crop.x = 0;
+	target->crop.y = 0;
+	target->crop.width = 0;
+	target->crop.height = 0;
+	char *p = strchr(data->output_name, '\n');
+	if (p != NULL) {
+		char *output_name = strndup(data->output_name, p - data->output_name);
+		sscanf(p + 1, "%u,%u:%ux%u", &target->crop.x, &target->crop.y, &target->crop.width, &target->crop.height);
+		out = xdpw_wlr_output_find_by_name(&ctx->output_list, output_name);
+		free(output_name);
+	} else {
+		out = xdpw_wlr_output_find_by_name(&ctx->output_list, data->output_name);
+	}
 
 	if (!out) {
 		return false;
 	}
+	if (target->crop.width == 0 || target->crop.height == 0) {
+		target->crop.width = out->width;
+		target->crop.height = out->height;
+	}
 	target->output = out;
-	target->crop.x = 0;
-	target->crop.y = 0;
-	target->crop.width = out->width;
-	target->crop.height = out->height;
 	return true;
 }
 

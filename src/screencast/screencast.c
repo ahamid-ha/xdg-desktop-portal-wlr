@@ -671,12 +671,14 @@ static int method_screencast_start(sd_bus_message *msg, void *data,
 		return ret;
 	}
 	if (sess->screencast_data.persist_mode != PERSIST_NONE) {
-		struct xdpw_screencast_restore_data restore_data;
-		restore_data.output_name = cast->target->output->name;
+		char *output_name = malloc(strlen(cast->target->output->name) + (6 * 4) + 2);
+		sprintf(output_name, "%s\n%u,%u:%ux%u", cast->target->output->name, cast->target->crop.x, cast->target->crop.y,
+				cast->target->crop.width, cast->target->crop.height);
 		ret = sd_bus_message_append(reply, "{sv}",
 			"restore_data", "(suv)",
 			"wlroots", XDP_CAST_DATA_VER,
-			"a{sv}", 1, "output_name", "s", restore_data.output_name);
+			"a{sv}", 1, "output_name", "s", output_name);
+		free(output_name);
 		if (ret < 0) {
 			return ret;
 		}
