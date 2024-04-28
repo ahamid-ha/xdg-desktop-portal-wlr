@@ -80,6 +80,7 @@ struct xdpw_frame {
 	bool y_invert;
 	uint64_t tv_sec;
 	uint32_t tv_nsec;
+	uint32_t transformation;
 	struct xdpw_frame_damage damage[4];
 	uint32_t damage_count;
 	struct xdpw_frame_crop crop;
@@ -153,14 +154,23 @@ struct xdpw_screencast_context {
 };
 
 struct xdpw_screencast_target {
-	struct xdpw_wlr_output *output;
-	bool with_cursor;
+	union {
+		struct {
+			struct xdpw_wlr_output *output;
+			bool with_cursor;
+		};
+	};
 	struct xdpw_frame_crop crop;
 };
 
 struct xdpw_screencast_restore_data {
 	uint32_t version;
 	const char *output_name;
+};
+
+struct xdpw_screencast_wlr_session {
+	struct zwlr_screencopy_frame_v1 *frame_callback;
+	struct zwlr_screencopy_frame_v1 *wlr_frame;
 };
 
 struct xdpw_screencast_instance {
@@ -187,10 +197,11 @@ struct xdpw_screencast_instance {
 	uint32_t framerate;
 
 	// wlroots
-	struct zwlr_screencopy_frame_v1 *frame_callback;
+	union {
+		struct xdpw_screencast_wlr_session wlr_session;
+	};
 	struct xdpw_screencast_target *target;
 	uint32_t max_framerate;
-	struct zwlr_screencopy_frame_v1 *wlr_frame;
 	struct xdpw_screencopy_frame_info screencopy_frame_info[2];
 	int err;
 	bool quit;
